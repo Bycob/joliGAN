@@ -1,0 +1,69 @@
+{
+    "model_in_file": "/data1/joligan/checkpoints/noglasses2glasses/latest_net_G_A.pth",
+    "img_width": 128,
+    "img_height": 128,
+    "crop_width": -1,
+    "crop_height": -1,
+    "bbox_width_factor": 0.0,
+    "bbox_height_factor": 0.0,
+    "sampling_steps": -1,
+    "cpu": false,
+    "gpuid": 0,
+    "seed": -1,
+    "dir_out": "/home/alx/inference_output",
+    "mask_delta": [
+        [
+            0
+        ]
+    ],
+    "mask_delta_ratio": [
+        [
+            0
+        ]
+    ],
+    "mask_square": false,
+    "name": "img_0",
+    "sampling_method": "ddpm",
+    "ddim_num_steps": 10,
+    "ddim_eta": 0.5,
+    "cls": -1,
+    "img_in": "/data1/joligan/datasets/public/noglasses2glasses_ffhq/trainA/img/00002.jpg",
+    "previous_frame": null,
+    "mask_in": "/data1/joligan/datasets/public/noglasses2glasses_ffhq/trainA/bbox/00002.jpg",
+    "bbox_in": null,
+    "nb_samples": 1,
+    "bbox_ref_id": -1,
+    "cond_in": null,
+    "cond_keep_ratio": false,
+    "cond_rotation": 0,
+    "cond_persp_horizontal": 0,
+    "cond_persp_vertical": 0,
+    "alg_palette_cond_image_creation": null,
+    "alg_palette_sketch_canny_thresholds": [
+        0,
+        765
+    ],
+    "alg_palette_super_resolution_downsample": false,
+    "alg_palette_sam_use_gaussian_filter": false,
+    "alg_palette_sam_no_sobel_filter": true,
+    "alg_palette_sam_no_output_binary_sam": true,
+    "alg_palette_sam_redundancy_threshold": 0.62,
+    "alg_palette_sam_sobel_threshold": 0.7,
+    "alg_palette_sam_final_canny": false,
+    "alg_palette_sam_min_mask_area": 0.001,
+    "alg_palette_sam_max_mask_area": 0.99,
+    "alg_palette_sam_points_per_side": 16,
+    "alg_palette_sam_no_sample_points_in_ellipse": true,
+    "alg_palette_sam_crop_delta": true,
+    "alg_palette_guidance_scale": 0.0,
+    "f_s_weight_sam": "models/configs/sam/pretrain/sam_vit_b_01ec64.pth",
+    "data_refined_mask": false,
+    "min_crop_bbox_ratio": null,
+    "model_prior_321_backwardcompatibility": false,
+    "gpu_ids": [
+        0
+    ],
+    "write": true,
+    "lmodel": null,
+    "lopt": null
+}

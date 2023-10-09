@@ -1,10 +1,13 @@
-from fastapi import Request, FastAPI, HTTPException
+from fastapi import Request, FastAPI, HTTPException, WebSocket
+import logging
 import asyncio
 import traceback
 import json
 import subprocess
 import os
 import shutil
+import time
+from pathlib import Path
 
 import torch.multiprocessing as mp
 
@@ -13,6 +16,15 @@ from options.train_options import TrainOptions
 from data import create_dataset
 from enum import Enum
 from pydantic import create_model, BaseModel, Field
+
+from options.inference_gan_options import InferenceGANOptions
+from options.inference_diffusion_options import InferenceDiffusionOptions
+
+import sys
+
+sys.path.append(os.path.join(os.path.dirname(__file__), "../scripts"))
+from gen_single_image import inference as launch_predict_single_image
+from gen_single_image_diffusion import inference as launch_predict_diffusion
 
 from multiprocessing import Process
 
@@ -36,6 +48,9 @@ app = FastAPI(title="JoliGEN server", description=description)
 
 
 # Additional schema
+
+
+## TrainOptions
 class ServerTrainOptions(BaseModel):
     sync: bool = Field(
         False,
@@ -60,7 +75,6 @@ json.dumps(
     separators=(",", ":"),
 ).encode("utf-8")
 
-
 generic_openapi = app.openapi
 
 
@@ -81,6 +95,56 @@ app.openapi = custom_openapi
 # Context variables
 ctx = {}
 
+LOG_PATH = os.environ.get(
+    "LOG_PATH", os.path.join(os.path.dirname(__file__), "../logs")
+)
+if not os.path.exists(LOG_PATH):
+    os.makedirs(LOG_PATH)
+
+
+async def log_reader_last_line(job_name):
+    global LOG_PATH
+
+    log_file = Path(f"{LOG_PATH}/{job_name}.log")
+
+    if not log_file.exists() or log_file.stat().st_size == 0:
+        return ""
+
+    with open(log_file, "r") as f:
+        try:
+            return f.readlines()[-1]
+        except Exception as e:
+            print(f"error reading logs for {job_name}: {e}")
+            return ""
+
+
+@app.websocket("/ws/logs/{job_name}")
+async def websocket_endpoint_log(job_name: str, websocket: WebSocket):
+    await websocket.accept()
+
+    try:
+        while True:
+            await asyncio.sleep(1)
+            logs = await log_reader_last_line(job_name)
+
+            if "success" in logs:
+                # close ws if last log line contains success message
+                print("success in logs, closing websocket")
+                await websocket.send_text(logs)
+                await websocket.close()
+                break
+            if "error" in logs:
+                # close ws if last log line contains error message
+                print("error in logs, closing websocket")
+                await websocket.send_text(logs)
+                await websocket.close()
+                break
+            else:
+                await websocket.send_text(logs)
+    except Exception as e:
+        print(f"error on ws log endpoint for {job_name}: {e}")
+        print(e)
+
 
 def stop_training(process):
     process.terminate()
@@ -93,6 +157,68 @@ def stop_training(process):
 
 def is_alive(process):
     return process.is_alive()
+
+
+@app.post(
+    "/predict",
+    status_code=201,
+    summary="Start an inference process.",
+    description="The inference process will be created using the same options as command line",
+)
+async def predict(request: Request):
+    predict_body = await request.json()
+
+    if predict_body["target"] is None:
+        return {
+            "predict_name": name,
+            "message": "error finding script target",
+            "status": "error",
+        }
+
+    if predict_body["target"] == "gen_single_image":
+        target = launch_predict_single_image
+        parser = InferenceGANOptions()
+    elif predict_body["target"] == "gen_single_image_diffusion":
+        target = launch_predict_diffusion
+        parser = InferenceDiffusionOptions()
+
+    try:
+        opt = parser.parse_json(predict_body["predict_options"], save_config=False)
+    except Exception as e:
+        traceback.print_exc()
+        raise HTTPException(status_code=400, detail="{0}".format(e))
+
+    opt.name = "predict_{}".format(int(time.time()))
+
+    LOG_PATH = os.environ.get(
+        "LOG_PATH", os.path.join(os.path.dirname(__file__), "../logs")
+    )
+    if not os.path.isdir(LOG_PATH):
+        os.mkdir(LOG_PATH)
+    Path(f"{LOG_PATH}/{opt.name}.log").touch()
+
+    JSON_PATH = os.environ.get(
+        "JSON_PATH", os.path.join(os.path.dirname(__file__), "../predict_json")
+    )
+    if not os.path.isdir(JSON_PATH):
+        os.mkdir(JSON_PATH)
+    Path(f"{JSON_PATH}/{opt.name}.json").touch()
+    with open(f"{JSON_PATH}/{opt.name}.json", "w") as f:
+        json.dump(opt.__dict__, f)
+
+    ctx[opt.name] = Process(target=target, args=(opt,))
+    ctx[opt.name].start()
+
+    if hasattr(opt, "server") and hasattr(opt.server, "sync"):
+        try:
+            # XXX could be awaited
+            ctx[name].join()
+        except Exception as e:
+            return {"predict_name": opt.name, "message": str(e), "status": "error"}
+        del ctx[opt.name]
+        return {"message": "ok", "predict_name": opt.name, "status": "stopped"}
+
+    return {"message": "ok", "predict_name": opt.name, "status": "running"}
 
 
 @app.post(

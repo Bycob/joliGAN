@@ -33,9 +33,10 @@ class BaseOptions:
     def initialize(self, parser):
         parser.add_argument(
             "--gpu_ids",
-            type=str,
-            default="0",
-            help="gpu ids: e.g. 0  0,1,2, 0,2. use -1 for CPU",
+            default=[0],
+            nargs="*",
+            type=int,
+            help="gpu ids: e.g. '0'  '0 1 2' '0 2'. use -1 for CPU",
         )
         parser.add_argument(
             "--with_amp",
@@ -298,12 +299,13 @@ class BaseOptions:
             self.isTrain = False
 
         # set gpu ids
-        str_ids = opt.gpu_ids.split(",")
-        opt.gpu_ids = []
-        for str_id in str_ids:
-            id = int(str_id)
-            if id >= 0:
-                opt.gpu_ids.append(id)
+        if isinstance(opt.gpu_ids, str):
+            str_ids = opt.gpu_ids.split(",")
+            opt.gpu_ids = []
+            for str_id in str_ids:
+                id = int(str_id)
+                if id >= 0:
+                    opt.gpu_ids.append(id)
         if set_device and len(opt.gpu_ids) > 0 and torch.cuda.is_available():
             torch.cuda.set_device(opt.gpu_ids[0])
 
@@ -448,6 +450,7 @@ class BaseOptions:
 
                         if action.nargs == "+":
                             field["items"]["enum"] = action.choices
+                            cur_type = "string"
                             if isinstance(action.default[0], str):
                                 cur_type = "string"
                             elif isinstance(action.default[0], list):

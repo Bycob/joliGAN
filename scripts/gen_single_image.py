@@ -1,6 +1,8 @@
 import sys
 import os
 import json
+import logging
+import datetime
 
 jg_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "../")
 sys.path.append(jg_dir)
@@ -23,7 +25,7 @@ def get_z_random(batch_size=1, nz=8, random_type="gauss"):
     return z.detach()
 
 
-def load_model(modelpath, model_in_file, cpu, gpuid):
+def load_model(modelpath, model_in_file, cpu, gpu_ids):
     train_json_path = modelpath + "/train_config.json"
     with open(train_json_path, "r") as jsonf:
         train_json = json.load(jsonf)
@@ -32,8 +34,8 @@ def load_model(modelpath, model_in_file, cpu, gpuid):
         opt.model_input_nc += opt.train_mm_nz
     opt.jg_dir = jg_dir
 
-    if not cpu:
-        device = torch.device("cuda:" + str(gpuid))
+    if not cpu and torch.cuda.is_available() and len(gpu_ids) > 0:
+        device = torch.device("cuda:" + ",".join(str(n) for n in gpu_ids))
     else:
         device = torch.device("cpu")
 
@@ -48,19 +50,39 @@ def load_model(modelpath, model_in_file, cpu, gpuid):
 
 
 def inference(args):
-    modelpath = args.model_in_file.replace(os.path.basename(args.model_in_file), "")
-    print("modelpath=%s" % modelpath)
+    PROGRESS_NUM_STEPS = 6
 
-    model, opt, device = load_model(
-        modelpath, os.path.basename(args.model_in_file), args.cpu, args.gpuid
+    LOG_PATH = os.environ.get(
+        "LOG_PATH", os.path.join(os.path.dirname(__file__), "../logs")
     )
+    if not os.path.exists(LOG_PATH):
+        os.makedirs(LOG_PATH)
+    log_file = f"{LOG_PATH}/{args.name}.log"
+
+    logging.basicConfig(
+        level=logging.DEBUG,
+        handlers=[logging.FileHandler(log_file, mode="w"), logging.StreamHandler()],
+    )
+    logging.info(f"[1/%i] launch process" % PROGRESS_NUM_STEPS)
+
+    # loading model
+    modelpath = args.model_in_file.replace(os.path.basename(args.model_in_file), "")
+    logging.debug("modelpath=%s" % modelpath)
+
+    try:
+        model, opt, device = load_model(
+            modelpath, os.path.basename(args.model_in_file), args.cpu, args.gpu_ids
+        )
+    except Exception as e:
+        logging.info("error loading model: %s" % str(e))
+        return
+
+    logging.info(f"[2/%i] model loaded" % PROGRESS_NUM_STEPS)
 
     # reading image
-    img_width = args.img_width if args.img_width is not None else opt.data_crop_size
-    img_height = args.img_height if args.img_height is not None else opt.data_crop_size
     img = cv2.imread(args.img_in)
     img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-    img = cv2.resize(img, (img_width, img_height), interpolation=cv2.INTER_CUBIC)
+    logging.info(f"[3/%i] image loaded" % PROGRESS_NUM_STEPS)
 
     # preprocessing
     tranlist = [
@@ -85,18 +107,24 @@ def inference(args):
         img_tensor = torch.cat([img_tensor.unsqueeze(0), z_real], 1)
     else:
         img_tensor = img_tensor.unsqueeze(0)
+    logging.info(f"[4/%i] preprocessing finished" % PROGRESS_NUM_STEPS)
 
     # run through model
-    out_tensor = model(img_tensor)[0].detach()
+    try:
+        out_tensor = model(img_tensor)[0].detach()
+    except Exception as e:
+        logging.info("error running model: %s" % str(e))
+        return
+    logging.info(f"[5/%i] out tensor available" % PROGRESS_NUM_STEPS)
 
     # post-processing
     out_img = out_tensor.data.cpu().float().numpy()
-    print(out_img.shape)
+    logging.debug("out_img.shape=%s" % str(out_img.shape))
+
     out_img = (np.transpose(out_img, (1, 2, 0)) + 1) / 2.0 * 255.0
-    # print(out_img)
     out_img = cv2.cvtColor(out_img, cv2.COLOR_RGB2BGR)
     cv2.imwrite(args.img_out, out_img)
-    print("Successfully generated image ", args.img_out)
+    logging.info(f"[6/%i] success - %s" % (PROGRESS_NUM_STEPS, args.img_out))
 
 
 if __name__ == "__main__":
